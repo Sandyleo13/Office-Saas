@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String      @id @default(uuid())
+  name         String
+  email        String      @unique
+  passwordHash String
+  role         Role        @default(VIEWER)
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  files        FileRecord[]
+  auditLogs    AuditLog[]
+}
+
+model Invite {
+  id         String    @id @default(uuid())
+  email      String
+  role       Role      @default(VIEWER)
+  tokenHash  String    @unique
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  acceptedAt DateTime?
+}
+
+model FileRecord {
+  id         String     @id @default(uuid())
+  name       String
+  type       FileType
+  status     FileStatus @default(EDITING)
+  sizeBytes  Int
+  storageKey String?
+  content    String?
+  notes      String?
+  version    Int        @default(1)
+  ownerId    String
+  owner      User       @relation(fields: [ownerId], references: [id])
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  title     String
+  status    FileStatus @default(EDITING)
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Sheet {
+  id        String   @id @default(uuid())
+  title     String
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  target    String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  EDITOR
+  REVIEWER
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
+enum FileType {
+  DOCUMENT
+  SPREADSHEET
+  PDF
+  OTHER
+}
+
+enum FileStatus {
+  PENDING
+  EDITING
+  REVIEW
+  APPROVED
+}
