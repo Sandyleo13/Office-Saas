@@ -273,10 +273,17 @@ app.patch("/api/users/:id/role", auth, can("roles"), async (req, res) => {
 
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(__dirname, "..", "dist");
-  app.use(express.static(dist));
-  app.get("*", (req, res) => res.sendFile(path.join(dist, "index.html")));
-}
 
+  app.use(express.static(dist));
+
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+
+    res.sendFile(path.join(dist, "index.html"));
+  });
+}
 app.listen(port, () => {
   console.log(`OfficeFlow API listening on http://127.0.0.1:${port}`);
 });
