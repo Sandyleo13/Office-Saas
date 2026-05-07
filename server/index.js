@@ -280,3 +280,8 @@ if (process.env.NODE_ENV === "production") {
 app.listen(port, () => {
   console.log(`OfficeFlow API listening on http://127.0.0.1:${port}`);
 });
+app.get("/", (req, res) => {
+  res.json({
+    status: "OfficeFlow API running"
+  });
+});
