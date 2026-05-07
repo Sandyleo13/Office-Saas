@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:4100";
+const API_URL = import.meta.env.VITE_API_URL;
 const TOKEN_KEY = "officeflow-token";
 
 const navItems = [
