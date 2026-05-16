@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const TOKEN_KEY = "officeflow-token";
 
 const navItems = [
@@ -669,12 +669,23 @@ async function api(path, { token, method = "GET", body, formData } = {}) {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
+    const error = await readJson(response).catch(() => ({ message: "Request failed" }));
     throw new Error(error.message || "Request failed");
   }
 
   if (response.status === 204) return null;
-  return response.json();
+  return readJson(response);
+}
+
+async function readJson(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  const preview = text.trim().slice(0, 80);
+  throw new Error(preview ? `Expected JSON from the API, but received: ${preview}` : "Expected JSON from the API");
 }
 
 function initials(name) {

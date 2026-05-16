@@ -271,6 +271,10 @@ app.patch("/api/users/:id/role", auth, can("roles"), async (req, res) => {
   res.json(publicUser(user));
 });
 
+app.use("/api", (req, res) => {
+  res.status(404).json({ message: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(__dirname, "..", "dist");
 
