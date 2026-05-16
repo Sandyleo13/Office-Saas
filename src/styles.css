@@ -74,7 +74,9 @@ select:disabled {
 .permissionBanner,
 .fileRow,
 .miniMember,
-.sheetActions {
+.sheetActions,
+.adminUserRow,
+.toggleLabel {
   display: flex;
   align-items: center;
 }
@@ -242,7 +244,8 @@ main {
 .sheetWrap input,
 .invitePanel input,
 .invitePanel select,
-.memberCard select {
+.memberCard select,
+.adminUserRow select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -501,8 +504,7 @@ main {
 }
 
 .segments button,
-.cardActions button,
-.demoGrid button {
+.cardActions button {
   min-height: 36px;
   border: 0;
   border-radius: 12px;
@@ -512,8 +514,7 @@ main {
 }
 
 .segments button.active,
-.cardActions button,
-.demoGrid button {
+.cardActions button {
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -633,6 +634,7 @@ th {
 .invitePanel input,
 .invitePanel select,
 .memberCard select,
+.adminUserRow select,
 .authPanel input {
   min-height: 46px;
   padding: 0 12px;
@@ -649,7 +651,8 @@ th {
 }
 
 .inviteList div,
-.inviteSuccess {
+.inviteSuccess,
+.adminStats div {
   display: grid;
   gap: 4px;
   padding: 10px;
@@ -681,6 +684,76 @@ th {
   padding: 0 10px;
   color: var(--text);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.adminLayout {
+  display: grid;
+  gap: 18px;
+}
+
+.adminHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.6fr);
+  gap: 22px;
+}
+
+.adminHero h2 {
+  margin: 6px 0 8px;
+  font-size: clamp(30px, 4vw, 50px);
+  letter-spacing: 0;
+}
+
+.adminHero p {
+  max-width: 760px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.adminStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.adminStats strong {
+  font-size: 32px;
+}
+
+.adminStats span,
+.toggleLabel {
+  color: var(--muted);
+}
+
+.adminUserList {
+  display: grid;
+  gap: 10px;
+}
+
+.adminUserRow {
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.adminUserRow > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.adminUserRow select {
+  max-width: 180px;
+}
+
+.toggleLabel {
+  gap: 8px;
+  min-width: 110px;
+}
+
+.toggleLabel input {
+  width: 18px;
+  height: 18px;
 }
 
 .authScreen {
@@ -759,13 +832,6 @@ th {
   margin-top: 4px;
 }
 
-.demoGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin-top: 18px;
-}
-
 .mobileOnly {
   display: none;
 }
@@ -796,7 +862,8 @@ th {
 
 @media (max-width: 1180px) {
   .dashboardGrid,
-  .teamLayout {
+  .teamLayout,
+  .adminHero {
     grid-template-columns: 1fr;
   }
 
@@ -880,5 +947,14 @@ th {
 
   .topbarActions {
     flex-wrap: wrap;
+  }
+
+  .adminUserRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .adminUserRow select {
+    max-width: none;
   }
 }

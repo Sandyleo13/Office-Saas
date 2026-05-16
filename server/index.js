@@ -6,7 +6,7 @@ import jwt from "jsonwebtoken";
 import multer from "multer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { permissions, roles } from "./seed.js";
+import { createDemoWorkspace, permissions, roles } from "./seed.js";
 import { loadDb, logAudit, saveDb, uploadsDir } from "./store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,22 +14,102 @@ const app = express();
 const port = Number(process.env.PORT || 4100);
 const jwtSecret = process.env.JWT_SECRET || "dev-only-change-this-secret";
 const sessionHours = Number(process.env.SESSION_HOURS || 8);
+const clientOrigins = (process.env.CLIENT_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const upload = multer({
   dest: uploadsDir,
   limits: { fileSize: 25 * 1024 * 1024 }
 });
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://127.0.0.1:5173" }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || clientOrigins.length === 0 || clientOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    }
+  })
+);
 app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(uploadsDir));
 
 function publicUser(user) {
   const { passwordHash, ...safeUser } = user;
+  const effectivePermissions = new Set(permissions[user.role] || []);
+  if (user.storageAccess === false) {
+    effectivePermissions.delete("upload");
+    effectivePermissions.delete("edit");
+  }
+
   return {
     ...safeUser,
-    permissions: permissions[user.role] || []
+    storageAccess: user.storageAccess !== false,
+    permissions: [...effectivePermissions]
   };
+}
+
+function isAdmin(user) {
+  return user.role === "Admin";
+}
+
+function isTeamMember(user) {
+  return ["Admin", "Manager", "Editor", "Reviewer"].includes(user.role);
+}
+
+function effectivePermissions(user) {
+  const allowed = new Set(permissions[user.role] || []);
+  if (user.storageAccess === false) {
+    allowed.delete("upload");
+    allowed.delete("edit");
+  }
+  return allowed;
+}
+
+function visibleFiles(db, user) {
+  if (isAdmin(user)) return db.files;
+  if (isTeamMember(user)) return db.files.filter((file) => file.visibility !== "private");
+  return db.files.filter((file) => file.ownerId === user.id);
+}
+
+function visibleDocuments(db, user) {
+  if (isAdmin(user)) return db.documents;
+  if (isTeamMember(user)) return db.documents.filter((document) => !document.ownerId || document.visibility === "team");
+  return db.documents.filter((document) => document.ownerId === user.id);
+}
+
+function sheetForUser(db, user) {
+  if (isTeamMember(user)) return db.sheet;
+  db.userSheets ||= {};
+  if (!db.userSheets[user.id]) {
+    db.userSheets[user.id] = createDemoWorkspace(user).sheet;
+  }
+  return db.userSheets[user.id];
+}
+
+async function ensurePersonalWorkspace(db, user) {
+  if (isTeamMember(user)) return;
+  const hasFiles = db.files.some((file) => file.ownerId === user.id);
+  const hasDocuments = db.documents.some((document) => document.ownerId === user.id);
+  db.userSheets ||= {};
+  if (hasFiles && hasDocuments && db.userSheets[user.id]) return;
+
+  const demo = createDemoWorkspace(user);
+  if (!hasFiles) db.files.unshift(...demo.files);
+  if (!hasDocuments) db.documents.unshift(...demo.documents);
+  db.userSheets[user.id] ||= demo.sheet;
+  await saveDb(db);
+}
+
+function ensureStorageAccess(req, res, next) {
+  if (req.user.storageAccess === false) {
+    return res.status(403).json({ message: "Storage access is disabled by Admin" });
+  }
+  next();
 }
 
 function tokenFor(user) {
@@ -46,6 +126,7 @@ async function auth(req, res, next) {
     const db = await loadDb();
     const user = db.users.find((item) => item.id === payload.sub && item.status === "Active");
     if (!user) return res.status(401).json({ message: "Session user not found" });
+    await ensurePersonalWorkspace(db, user);
     req.user = user;
     req.db = db;
     next();
@@ -56,7 +137,7 @@ async function auth(req, res, next) {
 
 function can(permission) {
   return (req, res, next) => {
-    if ((permissions[req.user.role] || []).includes(permission)) return next();
+    if (effectivePermissions(req.user).has(permission)) return next();
     return res.status(403).json({ message: "Role does not allow this action" });
   };
 }
@@ -123,10 +204,16 @@ app.post("/api/auth/register", async (req, res) => {
     email: cleanEmail,
     passwordHash: await bcrypt.hash(String(password), 12),
     role,
+    storageAccess: true,
     status: "Active",
     createdAt: new Date().toISOString()
   };
+  const demo = createDemoWorkspace(user);
   db.users.push(user);
+  db.files.unshift(...demo.files);
+  db.documents.unshift(...demo.documents);
+  db.userSheets ||= {};
+  db.userSheets[user.id] = demo.sheet;
   await saveDb(db);
   await logAudit(user.name, `Registered as ${role}`);
   res.status(201).json({ token: tokenFor(user), user: publicUser(user), expiresInHours: sessionHours });
@@ -141,26 +228,28 @@ app.get("/api/bootstrap", auth, (req, res) => {
     user: publicUser(req.user),
     roles,
     permissions,
-    files: req.db.files,
-    documents: req.db.documents,
-    sheet: req.db.sheet,
-    users: req.db.users.map(publicUser),
-    invites: req.db.invites,
-    auditLogs: req.db.auditLogs
+    files: visibleFiles(req.db, req.user),
+    documents: visibleDocuments(req.db, req.user),
+    sheet: sheetForUser(req.db, req.user),
+    users: isTeamMember(req.user) ? req.db.users.map(publicUser) : [publicUser(req.user)],
+    invites: isTeamMember(req.user) ? req.db.invites : [],
+    auditLogs: isTeamMember(req.user) ? req.db.auditLogs : req.db.auditLogs.filter((log) => log.actor === req.user.name)
   });
 });
 
 app.get("/api/files", auth, (req, res) => {
-  res.json(req.db.files);
+  res.json(visibleFiles(req.db, req.user));
 });
 
-app.post("/api/files/upload", auth, can("upload"), upload.array("files"), async (req, res) => {
+app.post("/api/files/upload", auth, can("upload"), ensureStorageAccess, upload.array("files"), async (req, res) => {
   const now = new Date().toISOString();
   const created = (req.files || []).map((file) => ({
     id: crypto.randomUUID(),
     name: file.originalname,
     type: inferType(file.originalname),
     owner: req.user.name,
+    ownerId: req.user.id,
+    visibility: isTeamMember(req.user) ? "team" : "private",
     status: "Editing",
     size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
     updatedAt: now,
@@ -175,8 +264,8 @@ app.post("/api/files/upload", auth, can("upload"), upload.array("files"), async 
   res.status(201).json(created);
 });
 
-app.patch("/api/files/:id", auth, can("edit"), async (req, res) => {
-  const file = req.db.files.find((item) => item.id === req.params.id);
+app.patch("/api/files/:id", auth, can("edit"), ensureStorageAccess, async (req, res) => {
+  const file = visibleFiles(req.db, req.user).find((item) => item.id === req.params.id);
   if (!file) return res.status(404).json({ message: "File not found" });
 
   Object.assign(file, {
@@ -192,12 +281,16 @@ app.patch("/api/files/:id", auth, can("edit"), async (req, res) => {
 app.post("/api/files/:id/status", auth, async (req, res) => {
   const status = req.body.status;
   const needed = status === "Approved" ? "approve" : status === "Review" ? "review" : "edit";
-  if (!(permissions[req.user.role] || []).includes(needed)) {
+  const file = req.db.files.find((item) => item.id === req.params.id);
+  if (!file) return res.status(404).json({ message: "File not found" });
+  if (!visibleFiles(req.db, req.user).some((item) => item.id === file.id)) {
+    return res.status(404).json({ message: "File not found" });
+  }
+  const canChangeOwnPrivateFile = file.ownerId === req.user.id && file.visibility === "private" && req.user.storageAccess !== false;
+  if (!canChangeOwnPrivateFile && !effectivePermissions(req.user).has(needed)) {
     return res.status(403).json({ message: "Role does not allow this status change" });
   }
 
-  const file = req.db.files.find((item) => item.id === req.params.id);
-  if (!file) return res.status(404).json({ message: "File not found" });
   file.status = status;
   file.updatedAt = new Date().toISOString();
   await saveDb(req.db);
@@ -206,16 +299,19 @@ app.post("/api/files/:id/status", auth, async (req, res) => {
 });
 
 app.delete("/api/files/:id", auth, can("delete"), async (req, res) => {
-  const file = req.db.files.find((item) => item.id === req.params.id);
+  const file = visibleFiles(req.db, req.user).find((item) => item.id === req.params.id);
+  if (!file) return res.status(404).json({ message: "File not found" });
   req.db.files = req.db.files.filter((item) => item.id !== req.params.id);
   await saveDb(req.db);
   await logAudit(req.user.name, `Deleted ${file?.name || req.params.id}`, req.params.id);
   res.status(204).end();
 });
 
-app.post("/api/documents", auth, can("edit"), async (req, res) => {
+app.post("/api/documents", auth, can("edit"), ensureStorageAccess, async (req, res) => {
   const document = {
     id: crypto.randomUUID(),
+    ownerId: req.user.id,
+    visibility: isTeamMember(req.user) ? "team" : "private",
     title: req.body.title || "Untitled document",
     status: "Editing",
     body: req.body.body || "<p>Start typing here.</p>",
@@ -227,8 +323,8 @@ app.post("/api/documents", auth, can("edit"), async (req, res) => {
   res.status(201).json(document);
 });
 
-app.patch("/api/documents/:id", auth, can("edit"), async (req, res) => {
-  const document = req.db.documents.find((item) => item.id === req.params.id);
+app.patch("/api/documents/:id", auth, can("edit"), ensureStorageAccess, async (req, res) => {
+  const document = visibleDocuments(req.db, req.user).find((item) => item.id === req.params.id);
   if (!document) return res.status(404).json({ message: "Document not found" });
   Object.assign(document, req.body, { updatedAt: new Date().toISOString() });
   await saveDb(req.db);
@@ -236,8 +332,13 @@ app.patch("/api/documents/:id", auth, can("edit"), async (req, res) => {
   res.json(document);
 });
 
-app.put("/api/sheet", auth, can("edit"), async (req, res) => {
-  req.db.sheet = req.body;
+app.put("/api/sheet", auth, can("edit"), ensureStorageAccess, async (req, res) => {
+  if (isTeamMember(req.user)) {
+    req.db.sheet = req.body;
+  } else {
+    req.db.userSheets ||= {};
+    req.db.userSheets[req.user.id] = req.body;
+  }
   await saveDb(req.db);
   await logAudit(req.user.name, `Saved sheet ${req.body.title || "Untitled sheet"}`);
   res.json(req.db.sheet);
@@ -264,10 +365,28 @@ app.post("/api/invites", auth, can("invite"), async (req, res) => {
 app.patch("/api/users/:id/role", auth, can("roles"), async (req, res) => {
   const user = req.db.users.find((item) => item.id === req.params.id);
   if (!user) return res.status(404).json({ message: "User not found" });
+  if (user.email === "admin@office.local" && req.body.role !== "Admin") {
+    return res.status(400).json({ message: "Primary admin account must keep Admin access" });
+  }
+  if (user.email !== "admin@office.local" && req.body.role === "Admin") {
+    return res.status(400).json({ message: "Only the primary admin account can use Admin access" });
+  }
   if (!roles.includes(req.body.role)) return res.status(400).json({ message: "Unknown role" });
   user.role = req.body.role;
   await saveDb(req.db);
   await logAudit(req.user.name, `Changed ${user.name} to ${user.role}`, user.id);
+  res.json(publicUser(user));
+});
+
+app.patch("/api/users/:id/storage-access", auth, can("roles"), async (req, res) => {
+  const user = req.db.users.find((item) => item.id === req.params.id);
+  if (!user) return res.status(404).json({ message: "User not found" });
+  if (user.email === "admin@office.local") {
+    return res.status(400).json({ message: "Primary admin account must keep storage access" });
+  }
+  user.storageAccess = Boolean(req.body.storageAccess);
+  await saveDb(req.db);
+  await logAudit(req.user.name, `${user.storageAccess ? "Enabled" : "Disabled"} storage access for ${user.name}`, user.id);
   res.json(publicUser(user));
 });
 

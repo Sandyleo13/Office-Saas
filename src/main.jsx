@@ -34,11 +34,12 @@ const navItems = [
   { id: "files", label: "Files", icon: Folder },
   { id: "docs", label: "Docs", icon: FileText },
   { id: "sheets", label: "Sheets", icon: BarChart3 },
-  { id: "team", label: "Team", icon: Users, permission: "team" }
+  { id: "team", label: "Team", icon: Users, permission: "team" },
+  { id: "admin", label: "Admin Panel", icon: ShieldCheck, permission: "roles" }
 ];
 
 const statusOptions = ["All", "Editing", "Review", "Approved"];
-const roleOptions = ["Admin", "Manager", "Editor", "Reviewer", "Viewer"];
+const assignableRoleOptions = ["Manager", "Editor", "Reviewer", "Viewer"];
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem(TOKEN_KEY) || "");
@@ -127,16 +128,6 @@ function App() {
       });
       saveToken(result.token);
       setToast(authMode === "login" ? "Welcome back" : "Account created");
-    } catch (error) {
-      setToast(error.message);
-    }
-  }
-
-  async function demoLogin(email, password) {
-    try {
-      const result = await api("/api/auth/login", { method: "POST", body: { email, password } });
-      saveToken(result.token);
-      setToast("Demo session started");
     } catch (error) {
       setToast(error.message);
     }
@@ -253,8 +244,14 @@ function App() {
     setToast("Role updated");
   }
 
+  async function changeStorageAccess(member, storageAccess) {
+    await api(`/api/users/${member.id}/storage-access`, { token, method: "PATCH", body: { storageAccess } });
+    await refresh();
+    setToast(storageAccess ? "Storage access enabled" : "Storage access disabled");
+  }
+
   if (!token || !data) {
-    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} onDemo={demoLogin} toast={toast} />;
+    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} toast={toast} />;
   }
 
   return (
@@ -382,6 +379,15 @@ function App() {
             lastInvite={lastInvite}
           />
         )}
+        {view === "admin" && (
+          <AdminPanel
+            users={data.users}
+            files={data.files}
+            logs={data.auditLogs}
+            onRole={changeRole}
+            onStorageAccess={changeStorageAccess}
+          />
+        )}
       </main>
 
       <input ref={uploadRef} type="file" multiple hidden onChange={uploadFiles} />
@@ -391,7 +397,7 @@ function App() {
   );
 }
 
-function AuthScreen({ mode, setMode, onSubmit, onDemo, toast }) {
+function AuthScreen({ mode, setMode, onSubmit, toast }) {
   const isLogin = mode === "login";
   const inviteFromUrl = new URLSearchParams(window.location.search).get("invite") || "";
   return (
@@ -417,23 +423,80 @@ function AuthScreen({ mode, setMode, onSubmit, onDemo, toast }) {
         <h2>{isLogin ? "Sign in" : "Create account"}</h2>
         <form onSubmit={onSubmit}>
           {!isLogin && <input name="name" placeholder="Full name" required />}
-          <input name="email" type="email" placeholder="Email" defaultValue={isLogin ? "admin@office.local" : ""} required />
-          <input name="password" type="password" placeholder="Password" defaultValue={isLogin ? "admin123" : ""} minLength={isLogin ? 1 : 8} required />
+          <input name="email" type="email" placeholder="Email" required />
+          <input name="password" type="password" placeholder="Password" minLength={isLogin ? 1 : 8} required />
           {!isLogin && <input name="inviteToken" placeholder="Invite token (optional)" defaultValue={inviteFromUrl} />}
           <button className="primaryButton" type="submit">{isLogin ? "Login" : "Register"}</button>
         </form>
         <button className="linkButton" onClick={() => setMode(isLogin ? "register" : "login")}>
-          {isLogin ? "Create public viewer account" : "Back to login"}
+          {isLogin ? "New user? Create a private public account" : "Back to login"}
         </button>
-        <div className="demoGrid">
-          <button onClick={() => onDemo("admin@office.local", "admin123")}>Admin</button>
-          <button onClick={() => onDemo("priya@office.local", "manager123")}>Manager</button>
-          <button onClick={() => onDemo("ravi@office.local", "editor123")}>Editor</button>
-          <button onClick={() => onDemo("neha@office.local", "review123")}>Reviewer</button>
-        </div>
       </div>
       {toast && <div className="toast">{toast}</div>}
     </section>
+  );
+}
+
+function AdminPanel({ users, files, logs, onRole, onStorageAccess }) {
+  const publicUsers = users.filter((member) => member.role === "Viewer");
+  const storageEnabled = users.filter((member) => member.storageAccess).length;
+  const privateFiles = files.filter((file) => file.visibility === "private").length;
+
+  return (
+    <div className="adminLayout">
+      <section className="adminHero panel">
+        <div>
+          <p className="eyebrow">Admin control</p>
+          <h2>Primary admin access</h2>
+          <p>Use <strong>admin@office.local</strong> with the admin password for full workspace control. Public users stay inside their own demo workspace unless you expand their access.</p>
+        </div>
+        <div className="adminStats">
+          <div><strong>{users.length}</strong><span>Total users</span></div>
+          <div><strong>{publicUsers.length}</strong><span>Public accounts</span></div>
+          <div><strong>{storageEnabled}</strong><span>Storage enabled</span></div>
+          <div><strong>{privateFiles}</strong><span>Private files</span></div>
+        </div>
+      </section>
+      <section className="panel adminUsers">
+        <PanelHeader title="User access" action="Admin only" />
+        <div className="adminUserList">
+          {users.map((member) => {
+            const isPrimaryAdmin = member.email === "admin@office.local";
+            return (
+              <article className="adminUserRow" key={member.id}>
+                <span className="avatar">{initials(member.name)}</span>
+                <div>
+                  <strong>{member.name}</strong>
+                  <small>{member.email}</small>
+                </div>
+                <select value={member.role} disabled={isPrimaryAdmin} onChange={(event) => onRole(member, event.target.value)}>
+                  {(isPrimaryAdmin ? ["Admin"] : assignableRoleOptions).map((role) => <option key={role}>{role}</option>)}
+                </select>
+                <label className="toggleLabel">
+                  <input
+                    type="checkbox"
+                    checked={member.storageAccess !== false}
+                    disabled={isPrimaryAdmin}
+                    onChange={(event) => onStorageAccess(member, event.target.checked)}
+                  />
+                  <span>Storage</span>
+                </label>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <section className="panel">
+        <PanelHeader title="Recent admin activity" action="Audit" />
+        {logs.slice(0, 8).map((log) => (
+          <div className="activityItem" key={log.id}>
+            <Activity size={16} />
+            <span>{log.action}</span>
+            <small>{new Date(log.createdAt).toLocaleString()}</small>
+          </div>
+        ))}
+      </section>
+    </div>
   );
 }
 
@@ -588,7 +651,7 @@ function TeamView({ users, invites, canRoles, canInvite, onInvite, onCopyInvite,
               <small>{member.email}</small>
               {canRoles ? (
                 <select value={member.role} onChange={(event) => onRole(member, event.target.value)}>
-                  {roleOptions.map((role) => <option key={role}>{role}</option>)}
+                  {(member.email === "admin@office.local" ? ["Admin"] : assignableRoleOptions).map((role) => <option key={role}>{role}</option>)}
                 </select>
               ) : (
                 <StatusBadge status={member.role} />
@@ -603,7 +666,7 @@ function TeamView({ users, invites, canRoles, canInvite, onInvite, onCopyInvite,
           <input name="email" type="email" placeholder="teammate@company.com" required disabled={!canInvite} />
           <label className="selectLabel">
             Role
-            <select name="role" disabled={!canInvite}>{roleOptions.map((role) => <option key={role}>{role}</option>)}</select>
+            <select name="role" disabled={!canInvite}>{assignableRoleOptions.map((role) => <option key={role}>{role}</option>)}</select>
           </label>
           <button className="primaryButton" disabled={!canInvite}>Create invite</button>
         </form>
@@ -716,7 +779,8 @@ function titleFor(view) {
     files: "File Workflow",
     docs: "Document Studio",
     sheets: "Sheet Workspace",
-    team: "Team Access"
+    team: "Team Access",
+    admin: "Admin Panel"
   }[view];
 }
 

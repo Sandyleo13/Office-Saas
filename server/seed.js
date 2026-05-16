@@ -8,8 +8,61 @@ export const permissions = {
   Manager: ["upload", "edit", "review", "approve", "team", "invite"],
   Editor: ["upload", "edit", "review"],
   Reviewer: ["review", "approve"],
-  Viewer: []
+  Viewer: ["upload", "edit"]
 };
+
+export function createDemoWorkspace(user, now = new Date().toISOString()) {
+  return {
+    files: [
+      {
+        id: crypto.randomUUID(),
+        name: "Welcome Checklist.docx",
+        type: "Document",
+        owner: user.name,
+        ownerId: user.id,
+        visibility: "private",
+        status: "Editing",
+        size: "36 KB",
+        updatedAt: now,
+        notes: "Private demo file. Only this account and Admin can see it.",
+        version: 1
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "Sample Budget.xlsx",
+        type: "Spreadsheet",
+        owner: user.name,
+        ownerId: user.id,
+        visibility: "private",
+        status: "Review",
+        size: "48 KB",
+        updatedAt: now,
+        notes: "Try moving this through your own workflow without touching team files.",
+        version: 1
+      }
+    ],
+    documents: [
+      {
+        id: crypto.randomUUID(),
+        ownerId: user.id,
+        title: "My Demo Notes",
+        status: "Editing",
+        body: "<h2>Private workspace</h2><p>Use this document to test editing. Admin can manage your storage access, but team files stay hidden.</p>",
+        updatedAt: now
+      }
+    ],
+    sheet: {
+      sourceFileId: null,
+      title: "My Demo Sheet",
+      headers: ["Task", "Owner", "Status", "Notes"],
+      rows: [
+        ["Upload a sample file", user.name, "Editing", "Visible only in this account"],
+        ["Edit a document", user.name, "Review", "Saved to this account workspace"],
+        ["Export sheet", user.name, "Approved", "Download as CSV"]
+      ]
+    }
+  };
+}
 
 export async function createSeedData() {
   const now = new Date().toISOString();
@@ -25,10 +78,12 @@ export async function createSeedData() {
       email,
       passwordHash: await bcrypt.hash(password, 12),
       role,
+      storageAccess: true,
       status: "Active",
       createdAt: now
     }))
   );
+  const userByEmail = Object.fromEntries(users.map((user) => [user.email, user]));
 
   return {
     users,
@@ -39,6 +94,8 @@ export async function createSeedData() {
         name: "Vendor Contract.docx",
         type: "Document",
         owner: "Priya Sharma",
+        ownerId: userByEmail["priya@office.local"].id,
+        visibility: "team",
         status: "Review",
         size: "184 KB",
         updatedAt: now,
@@ -50,6 +107,8 @@ export async function createSeedData() {
         name: "April Expenses.xlsx",
         type: "Spreadsheet",
         owner: "Ravi Patel",
+        ownerId: userByEmail["ravi@office.local"].id,
+        visibility: "team",
         status: "Editing",
         size: "92 KB",
         updatedAt: now,
@@ -62,6 +121,8 @@ export async function createSeedData() {
         name: "Office Policy.pdf",
         type: "PDF",
         owner: "Neha Khan",
+        ownerId: userByEmail["neha@office.local"].id,
+        visibility: "team",
         status: "Approved",
         size: "260 KB",
         updatedAt: now,
@@ -72,6 +133,7 @@ export async function createSeedData() {
     documents: [
       {
         id: crypto.randomUUID(),
+        ownerId: userByEmail["priya@office.local"].id,
         title: "Meeting Notes",
         status: "Editing",
         body: "<h2>Weekly Operations Review</h2><p>Open points for this week:</p><ul><li>Collect pending vendor files.</li><li>Review expense sheet.</li><li>Prepare approval summary.</li></ul>",
