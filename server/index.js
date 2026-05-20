@@ -271,6 +271,7 @@ app.patch("/api/files/:id", auth, can("edit"), ensureStorageAccess, async (req, 
   Object.assign(file, {
     ...req.body,
     id: file.id,
+    version: Number(file.version || 1) + 1,
     updatedAt: new Date().toISOString()
   });
   await saveDb(req.db);
@@ -397,7 +398,27 @@ app.use("/api", (req, res) => {
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(__dirname, "..", "dist");
 
-  app.use(express.static(dist));
+  app.use((req, res, next) => {
+    if (req.accepts("html")) {
+      res.set("Cache-Control", "no-store");
+    }
+    next();
+  });
+
+  app.use(
+    express.static(dist, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".html")) {
+          res.set("Cache-Control", "no-store");
+          return;
+        }
+
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      }
+    })
+  );
 
   app.use((req, res, next) => {
     if (req.path.startsWith("/api")) {
@@ -407,8 +428,8 @@ if (process.env.NODE_ENV === "production") {
     res.sendFile(path.join(dist, "index.html"));
   });
 }
-app.listen(port, () => {
-  console.log(`OfficeFlow API listening on http://127.0.0.1:${port}`);
+app.listen(port, "0.0.0.0", () => {
+  console.log(`OfficeFlow API listening on http://0.0.0.0:${port}`);
 });
 app.get("/", (req, res) => {
   res.json({

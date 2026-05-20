@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Copy,
   Database,
+  Download,
   FileText,
   Folder,
   LayoutDashboard,
@@ -40,6 +41,7 @@ const navItems = [
 
 const statusOptions = ["All", "Editing", "Review", "Approved"];
 const assignableRoleOptions = ["Manager", "Editor", "Reviewer", "Viewer"];
+const WORKSPACE_SHEET_KEY = "workspace-sheet";
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem(TOKEN_KEY) || "");
@@ -51,8 +53,12 @@ function App() {
   const [toast, setToast] = useState("");
   const [lastInvite, setLastInvite] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedDocId, setSelectedDocId] = useState("");
-  const [sheet, setSheet] = useState(null);
+  const [selectedDocKey, setSelectedDocKey] = useState("");
+  const [openDocFileIds, setOpenDocFileIds] = useState([]);
+  const [selectedSheetKey, setSelectedSheetKey] = useState(WORKSPACE_SHEET_KEY);
+  const [openSheetFileIds, setOpenSheetFileIds] = useState([]);
+  const [sheetDrafts, setSheetDrafts] = useState({});
+  const [authLoading, setAuthLoading] = useState(false);
   const uploadRef = useRef(null);
 
   const user = data?.user;
@@ -63,8 +69,8 @@ function App() {
     api("/api/bootstrap", { token })
       .then((nextData) => {
         setData(nextData);
-        setSelectedDocId(nextData.documents[0]?.id || "");
-        setSheet(nextData.sheet);
+        setSelectedDocKey(nextData.documents[0]?.id || "");
+        setSheetDrafts({ [WORKSPACE_SHEET_KEY]: nextData.sheet });
       })
       .catch(() => logout());
   }, [token]);
@@ -94,7 +100,33 @@ function App() {
     });
   }, [data, query, status]);
 
-  const selectedDoc = (data?.documents || []).find((doc) => doc.id === selectedDocId) || data?.documents?.[0];
+  const openDocFiles = useMemo(
+    () => openDocFileIds.map((id) => (data?.files || []).find((file) => file.id === id)).filter(Boolean),
+    [data, openDocFileIds]
+  );
+  const openSheetFiles = useMemo(
+    () => openSheetFileIds.map((id) => (data?.files || []).find((file) => file.id === id)).filter(Boolean),
+    [data, openSheetFileIds]
+  );
+  const docTabs = useMemo(
+    () => [
+      ...(data?.documents || []).map((doc) => ({ key: doc.id, title: doc.title, status: doc.status, source: "document" })),
+      ...openDocFiles.map((file) => ({ key: fileKey(file), title: file.name, status: file.status, source: "file" }))
+    ],
+    [data, openDocFiles]
+  );
+  const sheetTabs = useMemo(
+    () => [
+      { key: WORKSPACE_SHEET_KEY, title: data?.sheet?.title || "Expense Tracker", status: "Workspace", source: "sheet" },
+      ...openSheetFiles.map((file) => ({ key: fileKey(file), title: file.name, status: file.status, source: "file" }))
+    ],
+    [data, openSheetFiles]
+  );
+  const selectedDoc =
+    selectedDocKey.startsWith("file:")
+      ? documentFromFile((data?.files || []).find((file) => fileKey(file) === selectedDocKey))
+      : (data?.documents || []).find((doc) => doc.id === selectedDocKey) || data?.documents?.[0];
+  const sheet = sheetDrafts[selectedSheetKey] || data?.sheet;
 
   function saveToken(nextToken) {
     localStorage.setItem(TOKEN_KEY, nextToken);
@@ -106,10 +138,15 @@ function App() {
     setToken("");
     setData(null);
     setView("dashboard");
+    setOpenDocFileIds([]);
+    setOpenSheetFileIds([]);
+    setSheetDrafts({});
   }
 
   async function handleAuth(event) {
     event.preventDefault();
+    if (authLoading) return;
+
     const form = new FormData(event.currentTarget);
     const payload =
       authMode === "login"
@@ -122,6 +159,7 @@ function App() {
           };
 
     try {
+      setAuthLoading(true);
       const result = await api(`/api/auth/${authMode === "login" ? "login" : "register"}`, {
         method: "POST",
         body: payload
@@ -130,13 +168,53 @@ function App() {
       setToast(authMode === "login" ? "Welcome back" : "Account created");
     } catch (error) {
       setToast(error.message);
+    } finally {
+      setAuthLoading(false);
     }
   }
 
   async function refresh() {
     const nextData = await api("/api/bootstrap", { token });
     setData(nextData);
-    setSheet(nextData.sheet);
+    setSheetDrafts((current) => ({ ...current, [WORKSPACE_SHEET_KEY]: nextData.sheet }));
+  }
+
+  function openFile(file) {
+    const kind = fileKind(file);
+    if (kind === "sheet") {
+      const key = fileKey(file);
+      setOpenSheetFileIds((current) => (current.includes(file.id) ? current : [...current, file.id]));
+      setSheetDrafts((current) => ({ ...current, [key]: current[key] || sheetFromFile(file) }));
+      setSelectedSheetKey(key);
+      setView("sheets");
+      setToast(`${file.name} opened in Sheets`);
+      return;
+    }
+
+    const key = fileKey(file);
+    setOpenDocFileIds((current) => (current.includes(file.id) ? current : [...current, file.id]));
+    setSelectedDocKey(key);
+    setView("docs");
+    setToast(`${file.name} opened in Docs`);
+  }
+
+  function closeDocFile(fileId) {
+    setOpenDocFileIds((current) => current.filter((id) => id !== fileId));
+    if (selectedDocKey === `file:${fileId}`) {
+      setSelectedDocKey(data?.documents?.[0]?.id || "");
+    }
+  }
+
+  function closeSheetFile(fileId) {
+    const key = `file:${fileId}`;
+    setOpenSheetFileIds((current) => current.filter((id) => id !== fileId));
+    setSheetDrafts((current) => {
+      const { [key]: removed, ...rest } = current;
+      return rest;
+    });
+    if (selectedSheetKey === key) {
+      setSelectedSheetKey(WORKSPACE_SHEET_KEY);
+    }
   }
 
   async function uploadFiles(event) {
@@ -166,56 +244,81 @@ function App() {
     if (!selectedDoc) return;
     const title = document.querySelector("#docTitle").value.trim() || "Untitled document";
     const body = document.querySelector("#docBody").innerHTML;
-    await api(`/api/documents/${selectedDoc.id}`, { token, method: "PATCH", body: { title, body } });
+    if (selectedDoc.source === "file") {
+      await api(`/api/files/${selectedDoc.fileId}`, { token, method: "PATCH", body: { name: title, content: body, type: "Document" } });
+    } else {
+      await api(`/api/documents/${selectedDoc.id}`, { token, method: "PATCH", body: { title, body } });
+    }
     await refresh();
-    setToast("Document saved");
+    setToast(selectedDoc.source === "file" ? "File document saved" : "Document saved");
   }
 
   async function createDocument() {
     const doc = await api("/api/documents", { token, method: "POST", body: { title: "Untitled document" } });
     await refresh();
-    setSelectedDocId(doc.id);
+    setSelectedDocKey(doc.id);
     setToast("Document created");
   }
 
   async function saveSheet() {
-    await api("/api/sheet", { token, method: "PUT", body: sheet });
+    if (selectedSheetKey.startsWith("file:")) {
+      const fileId = selectedSheetKey.slice(5);
+      await api(`/api/files/${fileId}`, { token, method: "PATCH", body: { name: sheet.title, type: "Spreadsheet", content: sheetToCsv(sheet) } });
+    } else {
+      await api("/api/sheet", { token, method: "PUT", body: sheet });
+    }
     await refresh();
-    setToast("Sheet saved");
+    setToast(selectedSheetKey.startsWith("file:") ? "File sheet saved" : "Sheet saved");
   }
 
   function updateSheetCell(rowIndex, columnIndex, value) {
-    setSheet((current) => {
+    setSheetDrafts((drafts) => {
+      const current = drafts[selectedSheetKey] || data.sheet;
       const rows = current.rows.map((row) => [...row]);
       rows[rowIndex][columnIndex] = value;
-      return { ...current, rows };
+      return { ...drafts, [selectedSheetKey]: { ...current, rows } };
     });
   }
 
   function updateSheetHeader(columnIndex, value) {
-    setSheet((current) => {
+    setSheetDrafts((drafts) => {
+      const current = drafts[selectedSheetKey] || data.sheet;
       const headers = [...current.headers];
       headers[columnIndex] = value;
-      return { ...current, headers };
+      return { ...drafts, [selectedSheetKey]: { ...current, headers } };
     });
   }
 
   function addSheetRow() {
-    setSheet((current) => ({ ...current, rows: [...current.rows, current.headers.map(() => "")] }));
+    setSheetDrafts((drafts) => {
+      const current = drafts[selectedSheetKey] || data.sheet;
+      return { ...drafts, [selectedSheetKey]: { ...current, rows: [...current.rows, current.headers.map(() => "")] } };
+    });
   }
 
-  function exportSheet() {
-    const rows = [sheet.headers, ...sheet.rows];
-    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${sheet.title || "OfficeFlow Sheet"}.csv`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+  function updateSheetTitle(title) {
+    setSheetDrafts((drafts) => {
+      const current = drafts[selectedSheetKey] || data.sheet;
+      return { ...drafts, [selectedSheetKey]: { ...current, title } };
+    });
+  }
+
+  function exportSheet(targetSheet = sheet) {
+    downloadText(`${targetSheet.title || "OfficeFlow Sheet"}.csv`, sheetToCsv(targetSheet), "text/csv;charset=utf-8");
+  }
+
+  function downloadDocument(doc = selectedDoc) {
+    if (!doc) return;
+    downloadText(`${doc.title || "OfficeFlow Document"}.html`, `<!doctype html><html><body>${doc.body || ""}</body></html>`, "text/html;charset=utf-8");
+  }
+
+  function downloadOriginal(file) {
+    if (file?.url) {
+      window.open(`${API_URL}${file.url}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    downloadText(file?.name || "officeflow-file.txt", file?.content || file?.notes || "", "text/plain;charset=utf-8");
   }
 
   async function createInvite(event) {
@@ -251,7 +354,7 @@ function App() {
   }
 
   if (!token || !data) {
-    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} toast={toast} />;
+    return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={handleAuth} toast={toast} loading={authLoading} />;
   }
 
   return (
@@ -342,29 +445,41 @@ function App() {
             onUpload={() => uploadRef.current.click()}
             onStatus={updateFileStatus}
             onDelete={deleteFile}
+            onOpen={openFile}
           />
         )}
         {view === "docs" && (
           <DocsView
             docs={data.documents}
+            tabs={docTabs}
+            files={openDocFiles}
             selectedDoc={selectedDoc}
-            selectedDocId={selectedDocId}
-            setSelectedDocId={setSelectedDocId}
+            selectedDocKey={selectedDoc?.id || selectedDocKey}
+            setSelectedDocKey={setSelectedDocKey}
             canEdit={can("edit")}
             onCreate={createDocument}
             onSave={saveDocument}
+            onCloseFile={closeDocFile}
+            onDownload={downloadDocument}
+            onDownloadOriginal={downloadOriginal}
           />
         )}
         {view === "sheets" && sheet && (
           <SheetsView
             sheet={sheet}
-            setSheet={setSheet}
+            tabs={sheetTabs}
+            files={openSheetFiles}
+            selectedSheetKey={selectedSheetKey}
+            setSelectedSheetKey={setSelectedSheetKey}
+            setSheetTitle={updateSheetTitle}
             canEdit={can("edit")}
             onHeader={updateSheetHeader}
             onCell={updateSheetCell}
             onAddRow={addSheetRow}
             onSave={saveSheet}
             onExport={exportSheet}
+            onCloseFile={closeSheetFile}
+            onDownloadOriginal={downloadOriginal}
           />
         )}
         {view === "team" && (
@@ -397,7 +512,50 @@ function App() {
   );
 }
 
-function AuthScreen({ mode, setMode, onSubmit, toast }) {
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error) {
+    console.error("OfficeFlow failed to render", error);
+  }
+
+  reloadApp = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    window.location.reload();
+  };
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+
+    return (
+      <section className="fallbackScreen">
+        <div className="fallbackPanel">
+          <div className="brand">
+            <div className="brandMark">OF</div>
+            <div>
+              <strong>OfficeFlow</strong>
+              <span>Workspace recovery</span>
+            </div>
+          </div>
+          <h1>OfficeFlow had trouble loading.</h1>
+          <p>Refresh the workspace to clear the local session and load the latest app files.</p>
+          <button className="primaryButton" type="button" onClick={this.reloadApp}>
+            Reload workspace
+          </button>
+        </div>
+      </section>
+    );
+  }
+}
+
+function AuthScreen({ mode, setMode, onSubmit, toast, loading }) {
   const isLogin = mode === "login";
   const inviteFromUrl = new URLSearchParams(window.location.search).get("invite") || "";
   return (
@@ -422,13 +580,15 @@ function AuthScreen({ mode, setMode, onSubmit, toast }) {
         <p className="eyebrow">{isLogin ? "Welcome back" : "Public access"}</p>
         <h2>{isLogin ? "Sign in" : "Create account"}</h2>
         <form onSubmit={onSubmit}>
-          {!isLogin && <input name="name" placeholder="Full name" required />}
-          <input name="email" type="email" placeholder="Email" required />
-          <input name="password" type="password" placeholder="Password" minLength={isLogin ? 1 : 8} required />
-          {!isLogin && <input name="inviteToken" placeholder="Invite token (optional)" defaultValue={inviteFromUrl} />}
-          <button className="primaryButton" type="submit">{isLogin ? "Login" : "Register"}</button>
+          {!isLogin && <input name="name" placeholder="Full name" required disabled={loading} />}
+          <input name="email" type="email" placeholder="Email" required disabled={loading} />
+          <input name="password" type="password" placeholder="Password" minLength={isLogin ? 1 : 8} required disabled={loading} />
+          {!isLogin && <input name="inviteToken" placeholder="Invite token (optional)" defaultValue={inviteFromUrl} disabled={loading} />}
+          <button className="primaryButton" type="submit" disabled={loading}>
+            {loading ? (isLogin ? "Logging in..." : "Creating account...") : isLogin ? "Login" : "Register"}
+          </button>
         </form>
-        <button className="linkButton" onClick={() => setMode(isLogin ? "register" : "login")}>
+        <button className="linkButton" type="button" disabled={loading} onClick={() => setMode(isLogin ? "register" : "login")}>
           {isLogin ? "New user? Create a private public account" : "Back to login"}
         </button>
       </div>
@@ -554,7 +714,7 @@ function Dashboard({ metrics, files, logs, users, onUpload, canUpload }) {
   );
 }
 
-function FilesView({ files, status, setStatus, can, onUpload, onStatus, onDelete }) {
+function FilesView({ files, status, setStatus, can, onUpload, onStatus, onDelete, onOpen }) {
   return (
     <section className="panel">
       <div className="toolbar">
@@ -567,17 +727,18 @@ function FilesView({ files, status, setStatus, can, onUpload, onStatus, onDelete
       </div>
       <div className="fileGrid">
         {files.map((file) => (
-          <article className="fileCard" key={file.id}>
+          <article className="fileCard" key={file.id} onClick={() => onOpen(file)}>
             <div className="fileIcon"><FileText size={22} /></div>
             <strong>{file.name}</strong>
             <p>{file.type} · {file.owner} · v{file.version}</p>
             <StatusBadge status={file.status} />
             <small>{file.notes}</small>
             <div className="cardActions">
-              {can("edit") && <button onClick={() => onStatus(file, "Editing")}>Edit</button>}
-              {can("review") && <button onClick={() => onStatus(file, "Review")}>Review</button>}
-              {can("approve") && <button onClick={() => onStatus(file, "Approved")}>Approve</button>}
-              {can("delete") && <button className="danger" onClick={() => onDelete(file)}>Delete</button>}
+              <button onClick={(event) => { event.stopPropagation(); onOpen(file); }}>Open</button>
+              {can("edit") && <button onClick={(event) => { event.stopPropagation(); onStatus(file, "Editing"); }}>Edit</button>}
+              {can("review") && <button onClick={(event) => { event.stopPropagation(); onStatus(file, "Review"); }}>Review</button>}
+              {can("approve") && <button onClick={(event) => { event.stopPropagation(); onStatus(file, "Approved"); }}>Approve</button>}
+              {can("delete") && <button className="danger" onClick={(event) => { event.stopPropagation(); onDelete(file); }}>Delete</button>}
             </div>
           </article>
         ))}
@@ -586,36 +747,108 @@ function FilesView({ files, status, setStatus, can, onUpload, onStatus, onDelete
   );
 }
 
-function DocsView({ docs, selectedDoc, selectedDocId, setSelectedDocId, canEdit, onCreate, onSave }) {
+function DocsView({
+  docs,
+  tabs,
+  files,
+  selectedDoc,
+  selectedDocKey,
+  setSelectedDocKey,
+  canEdit,
+  onCreate,
+  onSave,
+  onCloseFile,
+  onDownload,
+  onDownloadOriginal
+}) {
+  const selectedFile = selectedDoc?.source === "file" ? files.find((file) => file.id === selectedDoc.fileId) : null;
+
   return (
     <div className="editorLayout">
       <aside className="panel docRail">
         <PanelHeader title="Documents" action={canEdit ? <button className="iconButton" onClick={onCreate}><Plus size={18} /></button> : null} />
         {docs.map((doc) => (
-          <button className={selectedDocId === doc.id ? "docButton active" : "docButton"} key={doc.id} onClick={() => setSelectedDocId(doc.id)}>
+          <button className={selectedDocKey === doc.id ? "docButton active" : "docButton"} key={doc.id} onClick={() => setSelectedDocKey(doc.id)}>
             <strong>{doc.title}</strong>
             <small>{doc.status}</small>
           </button>
         ))}
+        <div className="subTabZone">
+          <span>Open files</span>
+          {tabs.filter((tab) => tab.source === "file").map((tab) => {
+            const fileId = tab.key.slice(5);
+            return (
+              <button className={selectedDocKey === tab.key ? "subTab active" : "subTab"} key={tab.key} onClick={() => setSelectedDocKey(tab.key)}>
+                <FileText size={15} />
+                <span>{tab.title}</span>
+                <X size={14} onClick={(event) => { event.stopPropagation(); onCloseFile(fileId); }} />
+              </button>
+            );
+          })}
+        </div>
       </aside>
       <section className="panel docEditor">
-        <input id="docTitle" className="docTitle" defaultValue={selectedDoc?.title || ""} readOnly={!canEdit} />
-        <div id="docBody" className="richEditor" contentEditable={canEdit} suppressContentEditableWarning dangerouslySetInnerHTML={{ __html: selectedDoc?.body || "" }} />
-        <button className="primaryButton" disabled={!canEdit} onClick={onSave}><ClipboardCheck size={18} /> Save document</button>
+        <div className="editorTabs">
+          {tabs.map((tab) => (
+            <button className={selectedDocKey === tab.key ? "active" : ""} key={tab.key} onClick={() => setSelectedDocKey(tab.key)}>
+              {tab.title}
+            </button>
+          ))}
+        </div>
+        <input key={`${selectedDoc?.id}-title`} id="docTitle" className="docTitle" defaultValue={selectedDoc?.title || ""} readOnly={!canEdit} />
+        <div
+          key={`${selectedDoc?.id}-body`}
+          id="docBody"
+          className="richEditor"
+          contentEditable={canEdit}
+          suppressContentEditableWarning
+          dangerouslySetInnerHTML={{ __html: selectedDoc?.body || "" }}
+        />
+        <div className="editorActions">
+          <button className="primaryButton" disabled={!canEdit} onClick={onSave}><ClipboardCheck size={18} /> Save document</button>
+          <button className="secondaryButton" onClick={() => onDownload(selectedDoc)}><Download size={17} /> Updated file</button>
+          {selectedFile && <button className="secondaryButton" onClick={() => onDownloadOriginal(selectedFile)}><Download size={17} /> Original file</button>}
+        </div>
       </section>
     </div>
   );
 }
 
-function SheetsView({ sheet, setSheet, canEdit, onHeader, onCell, onAddRow, onSave, onExport }) {
+function SheetsView({
+  sheet,
+  tabs,
+  files,
+  selectedSheetKey,
+  setSelectedSheetKey,
+  setSheetTitle,
+  canEdit,
+  onHeader,
+  onCell,
+  onAddRow,
+  onSave,
+  onExport,
+  onCloseFile,
+  onDownloadOriginal
+}) {
+  const selectedFile = selectedSheetKey.startsWith("file:") ? files.find((file) => file.id === selectedSheetKey.slice(5)) : null;
+
   return (
     <section className="panel">
       <div className="toolbar">
-        <input className="sheetTitle" value={sheet.title} readOnly={!canEdit} onChange={(event) => setSheet({ ...sheet, title: event.target.value })} />
+        <input className="sheetTitle" value={sheet.title} readOnly={!canEdit} onChange={(event) => setSheetTitle(event.target.value)} />
+        <div className="editorTabs sheetTabs">
+          {tabs.map((tab) => (
+            <button className={selectedSheetKey === tab.key ? "active" : ""} key={tab.key} onClick={() => setSelectedSheetKey(tab.key)}>
+              <span>{tab.title}</span>
+              {tab.source === "file" && <X size={14} onClick={(event) => { event.stopPropagation(); onCloseFile(tab.key.slice(5)); }} />}
+            </button>
+          ))}
+        </div>
         <div className="sheetActions">
           <button className="secondaryButton" disabled={!canEdit} onClick={onAddRow}><Plus size={17} /> Row</button>
           <button className="primaryButton" disabled={!canEdit} onClick={onSave}><CheckCircle2 size={17} /> Save</button>
-          <button className="secondaryButton" onClick={onExport}>Export CSV</button>
+          <button className="secondaryButton" onClick={() => onExport(sheet)}>Export CSV</button>
+          {selectedFile && <button className="secondaryButton" onClick={() => onDownloadOriginal(selectedFile)}><Download size={17} /> Original</button>}
         </div>
       </div>
       <div className="sheetWrap">
@@ -721,15 +954,140 @@ function StatusBadge({ status }) {
   return <span className={`statusBadge ${status}`}>{status}</span>;
 }
 
+function fileKey(file) {
+  return `file:${file.id}`;
+}
+
+function fileKind(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.type || "").toLowerCase();
+  if (type.includes("sheet") || /\.(csv|xls|xlsx)$/i.test(name)) return "sheet";
+  return "document";
+}
+
+function documentFromFile(file) {
+  if (!file) return null;
+  const isPdf = String(file.name || "").toLowerCase().endsWith(".pdf") || file.type === "PDF";
+  const body =
+    file.content ||
+    (isPdf
+      ? `<h2>${escapeHtml(file.name)}</h2><p>This PDF is available as an original file reference. Download the original file when you need the source copy.</p>`
+      : `<h2>${escapeHtml(file.name)}</h2><p>${escapeHtml(file.notes || "Start editing this file content.")}</p>`);
+
+  return {
+    id: fileKey(file),
+    fileId: file.id,
+    source: "file",
+    title: file.name,
+    status: file.status,
+    body
+  };
+}
+
+function sheetFromFile(file) {
+  if (file?.content) {
+    const rows = parseCsv(file.content);
+    if (rows.length && rows.some((row) => row.some((cell) => String(cell).trim()))) {
+      const [headers, ...bodyRows] = rows;
+      return {
+        sourceFileId: file.id,
+        title: file.name,
+        headers: headers.some((cell) => String(cell).trim()) ? headers : ["Item", "Owner", "Status", "Notes"],
+        rows: bodyRows.some((row) => row.some((cell) => String(cell).trim())) ? bodyRows : [[file.name, file.owner || "", file.status || "Editing", file.notes || ""]]
+      };
+    }
+  }
+
+  return {
+    sourceFileId: file.id,
+    title: file.name,
+    headers: ["Item", "Owner", "Status", "Notes"],
+    rows: [[file.name, file.owner || "", file.status || "Editing", file.notes || ""]]
+  };
+}
+
+function parseCsv(text) {
+  return String(text || "")
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(parseCsvRow);
+}
+
+function parseCsvRow(row) {
+  const cells = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < row.length; index += 1) {
+    const char = row[index];
+    const next = row[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      cell += '"';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  cells.push(cell);
+  return cells;
+}
+
+function sheetToCsv(sheet) {
+  return [sheet.headers, ...sheet.rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+function downloadText(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 async function api(path, { token, method = "GET", body, formData } = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body ? { "Content-Type": "application/json" } : {})
-    },
-    body: formData || (body ? JSON.stringify(body) : undefined)
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
+  let response;
+
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body ? { "Content-Type": "application/json" } : {})
+      },
+      body: formData || (body ? JSON.stringify(body) : undefined)
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("The server did not respond. Please refresh and try again in a moment.");
+    }
+
+    throw new Error("Cannot reach the server. Please check the live deployment and try again.");
+  } finally {
+    window.clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const error = await readJson(response).catch(() => ({ message: "Request failed" }));
@@ -784,4 +1142,8 @@ function titleFor(view) {
   }[view];
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

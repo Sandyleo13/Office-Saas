@@ -404,6 +404,10 @@ main {
   margin-bottom: 16px;
 }
 
+.toolbar {
+  flex-wrap: wrap;
+}
+
 .panelHeader h2 {
   margin: 0;
   font-size: 18px;
@@ -535,6 +539,17 @@ main {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.fileCard {
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.fileCard:hover {
+  border-color: var(--violet-soft);
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
+}
+
 .cardActions {
   display: flex;
   flex-wrap: wrap;
@@ -575,9 +590,92 @@ main {
   background: rgba(155, 101, 216, 0.18);
 }
 
+.subTabZone {
+  min-height: 112px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px dashed rgba(215, 194, 241, 0.42);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.subTabZone > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.subTab,
+.editorTabs button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.subTab {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.subTab span,
+.editorTabs span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subTab.active,
+.editorTabs button.active {
+  border-color: var(--violet-soft);
+  background: rgba(155, 101, 216, 0.22);
+}
+
 .docEditor {
   display: grid;
   gap: 14px;
+}
+
+.editorTabs {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.editorTabs button {
+  max-width: 260px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.sheetTabs {
+  flex: 1;
+  min-width: 260px;
+}
+
+.editorActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .docTitle,
@@ -586,6 +684,11 @@ main {
   padding: 0 14px;
   font-size: 24px;
   font-weight: 800;
+}
+
+.toolbar .sheetTitle {
+  width: auto;
+  flex: 1 1 260px;
 }
 
 .richEditor {
@@ -756,13 +859,46 @@ th {
   height: 18px;
 }
 
-.authScreen {
+.authScreen,
+.fallbackScreen {
   min-height: 100vh;
+}
+
+.authScreen {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(340px, 440px);
   gap: 28px;
   align-items: center;
   padding: clamp(18px, 4vw, 56px);
+}
+
+.fallbackScreen {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.fallbackPanel {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.fallbackPanel h1 {
+  margin: 0;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1;
+}
+
+.fallbackPanel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .authHero {
