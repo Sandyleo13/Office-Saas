@@ -66,23 +66,14 @@ export function createDemoWorkspace(user, now = new Date().toISOString()) {
 
 export async function createSeedData() {
   const now = new Date().toISOString();
-  const users = await Promise.all(
-    [
-      ["Admin User", "admin@office.local", "admin123", "Admin"],
-      ["Priya Sharma", "priya@office.local", "manager123", "Manager"],
-      ["Ravi Patel", "ravi@office.local", "editor123", "Editor"],
-      ["Neha Khan", "neha@office.local", "review123", "Reviewer"]
-    ].map(async ([name, email, password, role]) => ({
-      id: crypto.randomUUID(),
-      name,
-      email,
-      passwordHash: await bcrypt.hash(password, 12),
-      role,
-      storageAccess: true,
-      status: "Active",
-      createdAt: now
-    }))
-  );
+  const user = await prisma.user.create({
+  data: {
+    name,
+    email,
+    passwordHash,
+    role: "VIEWER"
+  }
+});
   const userByEmail = Object.fromEntries(users.map((user) => [user.email, user]));
 
   return {

@@ -8,16 +8,21 @@ datasource db {
 }
 
 model User {
-  id           String      @id @default(uuid())
+  id           String     @id @default(uuid())
   name         String
-  email        String      @unique
+  email        String     @unique
   passwordHash String
-  role         Role        @default(VIEWER)
-  status       UserStatus  @default(ACTIVE)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  files        FileRecord[]
-  auditLogs    AuditLog[]
+  role         Role       @default(VIEWER)
+  status       UserStatus @default(ACTIVE)
+
+  storageAccess Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  files                FileRecord[]
+  auditLogs            AuditLog[]
+  workspaceMemberships WorkspaceMember[]
 }
 
 model Invite {
@@ -32,28 +37,46 @@ model Invite {
 }
 
 model FileRecord {
-  id         String     @id @default(uuid())
-  name       String
-  type       FileType
-  status     FileStatus @default(EDITING)
-  sizeBytes  Int
+  id String @id @default(uuid())
+
+  name String
+
+  type FileType
+
+  status FileStatus @default(EDITING)
+
+  sizeBytes Int
+
   storageKey String?
-  content    String?
-  notes      String?
-  version    Int        @default(1)
-  ownerId    String
-  owner      User       @relation(fields: [ownerId], references: [id])
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+
+  url String?
+
+  visibility String @default("private")
+
+  content String?
+
+  notes String?
+
+  version Int @default(1)
+
+  ownerId String
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime   @default(now())
+
+  updatedAt DateTime @updatedAt
 }
 
 model Document {
-  id        String   @id @default(uuid())
+  id        String     @id @default(uuid())
   title     String
   status    FileStatus @default(EDITING)
   body      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model Sheet {
@@ -100,4 +123,28 @@ enum FileStatus {
   EDITING
   REVIEW
   APPROVED
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  users WorkspaceMember[]
+  files FileRecord[]
+}
+
+model WorkspaceMember {
+  id String @id @default(uuid())
+
+  workspaceId String
+  userId      String
+
+  role Role @default(VIEWER)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@unique([workspaceId, userId])
 }
