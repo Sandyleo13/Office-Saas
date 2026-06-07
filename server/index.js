@@ -512,12 +512,16 @@ app.post("/api/auth/login", async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
+  console.error("LOGIN ERROR:", error);
 
-    res.status(500).json({
-      message: "Login failed"
-    });
-  }
+  res.status(500).json({
+    message: "Login failed",
+    error: error.message,
+    stack: process.env.NODE_ENV !== "production"
+      ? error.stack
+      : undefined
+  });
+}
 });
 
 app.get("/api/me", auth, async (req, res) => {
