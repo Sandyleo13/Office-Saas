@@ -126,8 +126,13 @@ function App() {
     selectedDocKey.startsWith("file:")
       ? documentFromFile((data?.files || []).find((file) => fileKey(file) === selectedDocKey))
       : (data?.documents || []).find((doc) => doc.id === selectedDocKey) || data?.documents?.[0];
-  const sheet = sheetDrafts[selectedSheetKey] || data?.sheet;
-
+  const sheet =
+    sheetDrafts[selectedSheetKey] ||
+    data?.sheet || {
+      title: "Demo Sheet",
+      headers: [],
+      rows: []
+    };
   function saveToken(nextToken) {
     localStorage.setItem(TOKEN_KEY, nextToken);
     setToken(nextToken);
@@ -152,11 +157,11 @@ function App() {
       authMode === "login"
         ? { email: form.get("email"), password: form.get("password") }
         : {
-            name: form.get("name"),
-            email: form.get("email"),
-            password: form.get("password"),
-            inviteToken: form.get("inviteToken")
-          };
+          name: form.get("name"),
+          email: form.get("email"),
+          password: form.get("password"),
+          inviteToken: form.get("inviteToken")
+        };
 
     try {
       setAuthLoading(true);
@@ -291,11 +296,77 @@ function App() {
 
   function addSheetRow() {
     setSheetDrafts((drafts) => {
-      const current = drafts[selectedSheetKey] || data.sheet;
-      return { ...drafts, [selectedSheetKey]: { ...current, rows: [...current.rows, current.headers.map(() => "")] } };
+      const current =
+        drafts[selectedSheetKey] ||
+        data?.sheet || {
+          title: "Demo Sheet",
+          headers: ["Column 1", "Column 2", "Column 3"],
+          rows: []
+        };
+
+      const headers =
+        current.headers?.length
+          ? current.headers
+          : ["Column 1", "Column 2", "Column 3"];
+
+      return {
+        ...drafts,
+        [selectedSheetKey]: {
+          ...current,
+          headers,
+          rows: [
+            ...(current.rows || []),
+            headers.map(() => "")
+          ]
+        }
+      };
     });
   }
+  function deleteRow(rowIndex) {
+    setSheetDrafts((drafts) => {
+      const current =
+        drafts[selectedSheetKey] || sheet;
 
+      return {
+        ...drafts,
+
+        [selectedSheetKey]: {
+          ...current,
+
+          rows: current.rows.filter(
+            (_, index) => index !== rowIndex
+          )
+        }
+      };
+    });
+  }
+  function addColumn() {
+    setSheetDrafts((drafts) => {
+
+      const current =
+        drafts[selectedSheetKey] || sheet;
+
+      const nextColumnName =
+        `Column ${(current.headers?.length || 0) + 1}`;
+
+      return {
+        ...drafts,
+
+        [selectedSheetKey]: {
+          ...current,
+
+          headers: [
+            ...(current.headers || []),
+            nextColumnName
+          ],
+
+          rows: (current.rows || []).map(
+            (row) => [...row, ""]
+          )
+        }
+      };
+    });
+  }
   function updateSheetTitle(title) {
     setSheetDrafts((drafts) => {
       const current = drafts[selectedSheetKey] || data.sheet;
@@ -362,9 +433,9 @@ function App() {
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="brand">
           <div className="brandMark">OF</div>
-          <div>
+          <div className="brandInfo">
             <strong>OfficeFlow</strong>
-            <span>Production workspace</span>
+            <span>Production Workspace</span>
           </div>
         </div>
         <nav>
@@ -397,7 +468,7 @@ function App() {
         </div>
         <div className="profileCard">
           <span className="avatar">{initials(user.name)}</span>
-          <div>
+          <div className="profileInfo">
             <strong>{user.name}</strong>
             <span>{user.role}</span>
           </div>
@@ -476,6 +547,8 @@ function App() {
             onHeader={updateSheetHeader}
             onCell={updateSheetCell}
             onAddRow={addSheetRow}
+            onDeleteRow={deleteRow}
+            onAddColumn={addColumn}
             onSave={saveSheet}
             onExport={exportSheet}
             onCloseFile={closeSheetFile}
@@ -825,17 +898,26 @@ function SheetsView({
   onHeader,
   onCell,
   onAddRow,
+  onDeleteRow,
+  onAddColumn,
   onSave,
   onExport,
   onCloseFile,
   onDownloadOriginal
 }) {
   const selectedFile = selectedSheetKey.startsWith("file:") ? files.find((file) => file.id === selectedSheetKey.slice(5)) : null;
-
+  const safeSheet = {
+    title: sheet?.title || "Untitled Sheet",
+    headers:
+      sheet?.headers?.length
+        ? sheet.headers
+        : ["Column 1", "Column 2", "Column 3"],
+    rows: sheet?.rows || []
+  };
   return (
     <section className="panel">
       <div className="toolbar">
-        <input className="sheetTitle" value={sheet.title} readOnly={!canEdit} onChange={(event) => setSheetTitle(event.target.value)} />
+        <input className="sheetTitle" value={safeSheet.title} readOnly={!canEdit} onChange={(event) => setSheetTitle(event.target.value)} />
         <div className="editorTabs sheetTabs">
           {tabs.map((tab) => (
             <button className={selectedSheetKey === tab.key ? "active" : ""} key={tab.key} onClick={() => setSelectedSheetKey(tab.key)}>
@@ -845,26 +927,83 @@ function SheetsView({
           ))}
         </div>
         <div className="sheetActions">
-          <button className="secondaryButton" disabled={!canEdit} onClick={onAddRow}><Plus size={17} /> Row</button>
-          <button className="primaryButton" disabled={!canEdit} onClick={onSave}><CheckCircle2 size={17} /> Save</button>
-          <button className="secondaryButton" onClick={() => onExport(sheet)}>Export CSV</button>
-          {selectedFile && <button className="secondaryButton" onClick={() => onDownloadOriginal(selectedFile)}><Download size={17} /> Original</button>}
+
+          <button
+            className="secondaryButton"
+            disabled={!canEdit}
+            onClick={onAddRow}
+          >
+            <Plus size={17} />
+            Row
+          </button>
+
+          <button
+            className="secondaryButton"
+            disabled={!canEdit}
+            onClick={onAddColumn}
+          >
+            <Plus size={17} />
+            Column
+          </button>
+
+          <button
+            className="primaryButton"
+            disabled={!canEdit}
+            onClick={onSave}
+          >
+            <CheckCircle2 size={17} />
+            Save
+          </button>
+
+          <button
+            className="secondaryButton"
+            onClick={() => onExport(sheet)}
+          >
+            Export CSV
+          </button>
         </div>
       </div>
       <div className="sheetWrap">
         <table>
           <thead>
-            <tr>{sheet.headers.map((header, index) => <th key={index}><input value={header} readOnly={!canEdit} onChange={(event) => onHeader(index, event.target.value)} /></th>)}</tr>
+            <tr>{safeSheet.headers.map((header, index) => <th key={index}><input value={header} readOnly={!canEdit} onChange={(event) => onHeader(index, event.target.value)} /></th>)}</tr>
           </thead>
           <tbody>
-            {sheet.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {row.map((cell, columnIndex) => (
-                  <td key={columnIndex}><input value={cell} readOnly={!canEdit} onChange={(event) => onCell(rowIndex, columnIndex, event.target.value)} /></td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
+  {safeSheet.rows.map((row, rowIndex) => (
+    <tr key={rowIndex}>
+
+      <td className="rowNumber">
+        {rowIndex + 1}
+      </td>
+
+      {row.map((cell, columnIndex) => (
+        <td key={columnIndex}>
+          <input
+            value={cell}
+            readOnly={!canEdit}
+            onChange={(event) =>
+              onCell(
+                rowIndex,
+                columnIndex,
+                event.target.value
+              )
+            }
+          />
+        </td>
+      ))}
+
+      <td className="actionCell">
+        <button
+          className="dangerButton"
+          onClick={() => onDeleteRow(rowIndex)}
+        >
+          🗑
+        </button>
+      </td>
+
+    </tr>
+  ))}
+</tbody>
         </table>
       </div>
     </section>

@@ -85,6 +85,22 @@ select:disabled {
   gap: 12px;
 }
 
+.brandInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.brandInfo strong {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.brandInfo span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .brandMark {
   width: 44px;
   height: 44px;
@@ -171,6 +187,22 @@ small,
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--violet), var(--green));
+}
+
+.profileInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.profileInfo strong {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.profileInfo span {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: capitalize;
 }
 
 .profileCard {
@@ -298,6 +330,19 @@ main {
   padding: 0;
   background: transparent;
   color: var(--violet-soft);
+}
+
+.dangerButton {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 123, 134, 0.15);
+  color: var(--danger);
+}
+
+.dangerButton:hover {
+  background: rgba(255, 123, 134, 0.25);
 }
 
 .permissionBanner {
@@ -602,7 +647,7 @@ main {
   background: rgba(255, 255, 255, 0.035);
 }
 
-.subTabZone > span {
+.subTabZone>span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
@@ -701,14 +746,13 @@ main {
 }
 
 .sheetWrap {
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-table {
-  width: 100%;
-  min-width: 760px;
+.sheetWrap table {
+  min-width: 100%;
+  width: max-content;
   border-collapse: collapse;
 }
 
@@ -840,7 +884,7 @@ th {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.adminUserRow > div {
+.adminUserRow>div {
   min-width: 0;
   flex: 1;
 }
@@ -997,6 +1041,7 @@ th {
 }
 
 @media (max-width: 1180px) {
+
   .dashboardGrid,
   .teamLayout,
   .adminHero {
@@ -1017,7 +1062,7 @@ th {
     position: fixed;
     inset: 0 auto 0 0;
     z-index: 25;
-    width: min(300px, 86vw);
+    width: 280px;
     transform: translateX(-105%);
     transition: transform 180ms ease;
   }
@@ -1060,6 +1105,7 @@ th {
 }
 
 @media (max-width: 640px) {
+
   .metricsRow,
   .fileGrid,
   .teamGrid {
@@ -1093,4 +1139,40 @@ th {
   .adminUserRow select {
     max-width: none;
   }
+}
+.rowNumber {
+  width: 50px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.actionCell {
+  width: 80px;
+  text-align: center;
+}
+
+.dangerButton {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+
+  background: rgba(255, 123, 134, 0.15);
+  color: #ff7b86;
+}
+
+.dangerButton:hover {
+  background: rgba(255, 123, 134, 0.25);
+}
+
+.sheetActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.sheetActions button {
+  min-width: 140px;
+  height: 48px;
 }

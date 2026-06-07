@@ -37,6 +37,28 @@ const clientOrigins = (process.env.CLIENT_ORIGIN || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+console.log("CLIENT_ORIGIN =", process.env.CLIENT_ORIGIN);
+console.log("clientOrigins =", clientOrigins);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      console.log("Request Origin:", origin);
+      console.log("Allowed Origins:", clientOrigins);
+
+      if (
+        !origin ||
+        clientOrigins.length === 0 ||
+        clientOrigins.includes(origin)
+      ) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    }
+  })
+);
+
 const upload = multer({
   dest: uploadsDir,
   limits: {
